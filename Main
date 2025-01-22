@@ -1,0 +1,120 @@
+import tkinter as tk
+from tkinter import ttk, messagebox
+from logic import Autho, SiteHelper, createWorkingTask, MASTER_REPORT_LIST
+import uuid
+
+class Application(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        self.title("Fsrar Report Downloader")
+        self.geometry("500x500")
+
+        # Variables for storing user input
+        self.inn_var = tk.StringVar()
+        self.password_var = tk.StringVar()
+        self.kpp_var = tk.StringVar()
+        self.start_date_var = tk.StringVar()
+        self.end_date_var = tk.StringVar()
+        self.report_code_var = tk.StringVar()
+        self.additional_data_var = tk.StringVar()
+
+        self.create_widgets()
+
+    def create_widgets(self):
+        tk.Label(self, text="ИНН:").pack()
+        tk.Entry(self, textvariable=self.inn_var).pack()
+
+        tk.Label(self, text="Пароль:").pack()
+        tk.Entry(self, textvariable=self.password_var, show="*").pack()
+
+        tk.Label(self, text="КПП:").pack()
+        tk.Entry(self, textvariable=self.kpp_var).pack()
+
+        tk.Label(self, text="Дата начала (DD-MM-YYYY):").pack()
+        tk.Entry(self, textvariable=self.start_date_var).pack()
+
+        tk.Label(self, text="Дата окончания (DD-MM-YYYY):").pack()
+        tk.Entry(self, textvariable=self.end_date_var).pack()
+
+        tk.Label(self, text="Код отчета:").pack()
+        report_options = list(MASTER_REPORT_LIST.keys())
+        ttk.Combobox(self, textvariable=self.report_code_var, values=report_options).pack()
+
+        tk.Label(self, text="Состояние накладной:").pack()
+        additional_data_options = ['1', '2', '3']
+        ttk.Combobox(self, textvariable=self.additional_data_var, values=additional_data_options).pack()
+
+        tk.Button(self, text="Создать и Загрузить Отчет", command=self.process_report).pack(pady=10)
+
+    def process_report(self):
+        params = {
+            'inn': self.inn_var.get(),
+            'password': self.password_var.get()
+        }
+        kpp = self.kpp_var.get()
+        start_date = self.start_date_var.get()
+        end_date = self.end_date_var.get()
+        report_code = self.report_code_var.get()
+        additional_data = self.additional_data_var.get()
+
+        if not self.validate_input(params, kpp, start_date, end_date):
+            return
+
+        cookies = Autho.autho(params)
+        if not isinstance(cookies, dict):
+            messagebox.showerror("Ошибка", "Ошибка авторизации.")
+            return
+
+        report_data = {
+            'reportID': str(uuid.uuid4()),
+            'report_code': report_code,
+            'inn': params['inn'],
+            'kpp': kpp,
+            'start_date': start_date,
+            'end_date': end_date,
+            'additional_data': additional_data
+        }
+
+        siteHelper = SiteHelper()
+        responseReportList = siteHelper.createReport(cookies, [report_data])
+        if responseReportList:
+            messagebox.showinfo("Успех", "Отчет успешно создан и отправлен.")
+            self.download_reports(siteHelper, cookies, responseReportList)
+        else:
+            messagebox.showerror("Ошибка", "Не удалось создать отчет.")
+
+    def download_reports(self, siteHelper, cookies, responseReportList):
+        for report in responseReportList:
+            if report["IdRequest"]:
+                success = siteHelper.downloadFile(f'https://service.fsrar.ru/path/to/report/{report["IdRequest"]}', cookies, f"{report['reportID']}.xls")
+                if success:
+                    messagebox.showinfo("Успех", f"Файл {report['reportID']}.xls успешно загружен.")
+                else:
+                    messagebox.showerror("Ошибка", f"Не удалось загрузить файл {report['reportID']}.")
+
+    def validate_input(self, params, kpp, start_date, end_date):
+        if not params['inn'] or not params['password']:
+            messagebox.showerror("Ошибка", "Пожалуйста, заполните все поля.")
+            return False
+
+        if not createWorkingTask.is_valid_inn(params['inn']):
+            messagebox.showerror("Ошибка", "Некорректный ИНН.")
+            return False
+
+        if not createWorkingTask.is_valid_kpp(kpp):
+            messagebox.showerror("Ошибка", "Некорректный КПП.")
+            return False
+
+        if not createWorkingTask.is_valid_date(start_date) or not createWorkingTask.is_valid_date(end_date):
+            messagebox.showerror("Ошибка", "Некорректная дата.")
+            return False
+
+        if not createWorkingTask.compare_dates(start_date, end_date):
+            messagebox.showerror("Ошибка", "Дата окончания должна быть больше даты начала.")
+            return False
+
+        return True
+
+if __name__ == "__main__":
+    app = Application()
+    app.mainloop()
